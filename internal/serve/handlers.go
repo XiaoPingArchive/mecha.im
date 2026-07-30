@@ -35,6 +35,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePostTask(w http.ResponseWriter, r *http.Request) {
+	if s.draining.Load() {
+		writeError(w, http.StatusServiceUnavailable, "server draining")
+		return
+	}
+
 	var req taskRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -76,6 +81,16 @@ func (s *Server) handlePostTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tasksCreated.Add(1)
+
+	// Close the race where shutdown begins while the request is being parsed or
+	// persisted. The task is made terminal instead of being stranded in memory.
+	if s.draining.Load() {
+		if err := s.tasks.Fail(r.Context(), t.ID, "server draining"); err != nil {
+			s.logger.Error("fail task during drain", "id", t.ID, "err", err)
+		}
+		writeError(w, http.StatusServiceUnavailable, "server draining")
+		return
+	}
 
 	select {
 	case s.pending <- t.ID:

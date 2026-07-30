@@ -21,32 +21,49 @@ var dispatchClient = &http.Client{
 const maxConcurrentDispatches = 16
 
 func (s *Server) dispatchLoop(ctx context.Context) {
+	s.dispatchLoopWithTaskContext(ctx, ctx)
+}
+
+// dispatchLoopWithTaskContext lets shutdown stop admitting queued tasks without
+// cancelling work that was already accepted. Tests and standalone callers use
+// dispatchLoop above, where admission and task cancellation remain coupled.
+func (s *Server) dispatchLoopWithTaskContext(admitCtx, taskCtx context.Context) {
 	sem := make(chan struct{}, maxConcurrentDispatches)
 	for {
 		select {
-		case <-ctx.Done():
+		case <-admitCtx.Done():
 			s.logger.Info("dispatch loop stopped")
 			return
 		case taskID, ok := <-s.pending:
 			if !ok {
 				return
 			}
+			// A receive can win the select at the same instant as shutdown.
+			// Leave the durable task pending for recovery instead of admitting it.
+			select {
+			case <-admitCtx.Done():
+				s.logger.Warn("dispatch: shutdown after dequeue", "task", taskID)
+				return
+			default:
+			}
 			select {
 			case sem <- struct{}{}: // acquire slot
-			case <-ctx.Done():
+			case <-admitCtx.Done():
 				s.logger.Warn("dispatch: shutdown while waiting for slot", "task", taskID)
 				return
 			}
 			s.dispatchWg.Add(1)
+			s.activeTasks.Add(1)
 			go func(id string) {
 				defer s.dispatchWg.Done()
+				defer s.activeTasks.Add(-1)
 				defer func() { <-sem }() // release slot
 				defer func() {
 					if r := recover(); r != nil {
 						s.logger.Error("dispatch: panic", "id", id, "panic", r)
 					}
 				}()
-				s.dispatchTask(ctx, id)
+				s.dispatchTask(taskCtx, id)
 			}(taskID)
 		}
 	}
@@ -141,6 +158,16 @@ func (s *Server) dispatchTask(ctx context.Context, taskID string) {
 	}
 	result, err := s.sendTask(ctx, ep, taskID, t.Prompt, t.Context, entry.Worker.Timeout, apiKey)
 	if err != nil {
+		if s.persistTaskCancellation(
+			ctx, taskID, t.EventID, t.WorkerName, t.Attempts+1,
+		) {
+			workerRestored = true
+			if onlineErr := s.reg.SetOnline(t.WorkerName); onlineErr != nil {
+				s.logger.Warn("dispatch: set online after cancellation", "id", taskID, "err", onlineErr)
+			}
+			s.logger.Warn("dispatch: task cancelled", "id", taskID, "worker", t.WorkerName)
+			return
+		}
 		redacted := workers.RedactSecrets(err.Error())
 		// Retry transient errors; permanently fail the rest.
 		if isTransportError(err) {
