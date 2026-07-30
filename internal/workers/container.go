@@ -70,7 +70,7 @@ func BuildContainerEnv(dc *DockerConfig, validate func(k, v string) error, cache
 		env["WORKER_API_KEY"] = dc.APIKey
 	}
 
-	if len(dc.Credentials) > 0 {
+	if len(dc.Credentials) > 0 || len(dc.CredentialsRW) > 0 {
 		env["HOME"] = "/home/worker"
 	} else {
 		env["HOME"] = "/tmp"
@@ -124,6 +124,14 @@ func BuildContainerMounts(dc *DockerConfig) ([]MountCfg, error) {
 		if err != nil {
 			return nil, err
 		}
+		mounts = append(mounts, m)
+	}
+	for _, cred := range dc.CredentialsRW {
+		m, err := resolveCredentialMount(cred)
+		if err != nil {
+			return nil, err
+		}
+		m.ReadOnly = false
 		mounts = append(mounts, m)
 	}
 	return mounts, nil
