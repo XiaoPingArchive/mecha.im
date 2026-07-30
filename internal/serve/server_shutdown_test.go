@@ -61,11 +61,13 @@ func startShutdownTestServer(
 	select {
 	case <-srv.ready:
 	case err := <-errCh:
+		workerServer.CloseClientConnections()
 		workerServer.Close()
 		db.Close()
 		t.Fatalf("server failed before listening: %v", err)
 	case <-time.After(2 * time.Second):
 		cancel()
+		workerServer.CloseClientConnections()
 		workerServer.Close()
 		db.Close()
 		t.Fatal("server did not start listening")
@@ -78,6 +80,7 @@ func startShutdownTestServer(
 		case <-time.After(5 * time.Second):
 			t.Error("server did not stop during cleanup")
 		}
+		workerServer.CloseClientConnections()
 		workerServer.Close()
 		db.Close()
 	}
