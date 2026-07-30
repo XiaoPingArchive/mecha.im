@@ -136,9 +136,14 @@ func (b bridge) submit(
 	ctx context.Context,
 	prompt string,
 ) (tasks.Task, error) {
-	payload := map[string]string{
-		"prompt": prompt,
-		"worker": b.worker,
+	payload := struct {
+		Prompt     string `json:"prompt"`
+		Worker     string `json:"worker"`
+		MaxRetries int    `json:"max_retries"`
+	}{
+		Prompt:     prompt,
+		Worker:     b.worker,
+		MaxRetries: 1,
 	}
 	body, status, _, err := b.do(ctx, http.MethodPost, "/task", payload)
 	if err != nil {
