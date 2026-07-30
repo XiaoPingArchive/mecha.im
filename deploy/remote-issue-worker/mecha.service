@@ -11,6 +11,7 @@ Group=mecha
 SupplementaryGroups=docker
 Environment=HOME=/var/lib/mecha
 Environment=MECHA_DB_PATH=/var/lib/mecha/.mecha/mecha.db
+Environment=MECHA_DRAIN_TIMEOUT=35m
 Environment=TZ=Asia/Shanghai
 ExecStart=/opt/xiaoping-mecha/current/mecha serve --addr 127.0.0.1:21212
 Restart=on-failure
