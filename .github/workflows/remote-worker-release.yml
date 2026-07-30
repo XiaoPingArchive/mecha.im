@@ -17,10 +17,10 @@ jobs:
   binaries:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Build Linux amd64 binaries
@@ -33,8 +33,13 @@ jobs:
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
             go build -trimpath -ldflags "-s -w" \
             -o dist/mecha-submit ./cmd/mecha-submit
-          (cd dist && sha256sum mecha mecha-submit > SHA256SUMS)
-      - uses: actions/upload-artifact@v4
+          mkdir -p bundle/bin bundle/deploy bundle/workers
+          cp dist/mecha dist/mecha-submit bundle/bin/
+          cp deploy/remote-issue-worker/mecha.service bundle/deploy/
+          cp deploy/remote-issue-worker/mecha-submit-gateway bundle/deploy/
+          cp workers/xiaoping-codex.yml bundle/workers/
+          tar -C bundle -czf dist/mecha-remote-worker-linux-amd64.tar.gz .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: remote-worker-linux-amd64
           path: dist/
@@ -42,8 +47,8 @@ jobs:
   image:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -53,13 +58,15 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          TAG="${TAG//\//-}"
+          [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]
           docker build -t mecha-worker-base -f docker/base/Dockerfile docker/
           docker build -t "$IMAGE:$TAG" -t "$IMAGE:latest" docker/codex/
           docker push "$IMAGE:$TAG"
           docker push "$IMAGE:latest"
           docker image inspect "$IMAGE:$TAG" \
             --format='{{index .RepoDigests 0}}' > IMAGE-DIGEST.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: remote-worker-image-digest
           path: IMAGE-DIGEST.txt
@@ -69,7 +76,7 @@ jobs:
     needs: [binaries, image]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
       - name: Prepare release files
@@ -78,7 +85,10 @@ jobs:
           mkdir -p release
           cp artifacts/remote-worker-linux-amd64/* release/
           cp artifacts/remote-worker-image-digest/IMAGE-DIGEST.txt release/
-      - uses: softprops/action-gh-release@v2
+          (cd release && sha256sum \
+            mecha mecha-submit mecha-remote-worker-linux-amd64.tar.gz IMAGE-DIGEST.txt \
+            > SHA256SUMS)
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           generate_release_notes: true
           files: release/*
