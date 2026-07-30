@@ -8,9 +8,10 @@ Security invariants:
 - `mecha serve` listens only on `127.0.0.1:21212` with an API key.
 - GitHub Actions reaches a dedicated SSH account whose key has a forced command.
 - The forced gateway rejects arbitrary SSH commands and pauses during the local
-  07:30–09:05 morning-report window.
+  07:00–09:05 morning-report window.
 - `mecha-submit` accepts one JSON object of at most 40 KiB, fixes the worker name
-  to `xiaoping-codex`, serializes tasks with a host lock, and redacts errors.
+  to `xiaoping-codex`, serializes tasks with `/var/lib/mecha-submit/submit.lock`, and redacts errors.
+  Create `/var/lib/mecha-submit` for that account before enabling the key.
 - Each task gets a disposable container with no host project mount, dropped
   capabilities, two CPUs, 2200 MiB RAM, and 256 PIDs.
 - Codex executes with `read-only` sandboxing. `danger-full-access` is rejected.
