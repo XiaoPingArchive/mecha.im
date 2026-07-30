@@ -12,8 +12,8 @@ fi
 
 now="$(TZ=Asia/Shanghai date +%H%M)"
 now_number=$((10#$now))
-if (( now_number >= 730 && now_number < 905 )); then
-  fail_json "远程任务在每日晨报保护窗口 07:30-09:05 暂停接收，请稍后重试" 75
+if (( now_number >= 700 && now_number < 905 )); then
+  fail_json "远程任务在每日晨报保护窗口 07:00-09:05 暂停接收，请稍后重试" 75
 fi
 
 if systemctl --quiet is-active guangxi-opportunity-report.service; then
