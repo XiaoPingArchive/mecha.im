@@ -58,6 +58,18 @@ func startShutdownTestServer(
 		defer close(done)
 		errCh <- srv.Start(ctx)
 	}()
+	select {
+	case <-srv.ready:
+	case err := <-errCh:
+		workerServer.Close()
+		db.Close()
+		t.Fatalf("server failed before listening: %v", err)
+	case <-time.After(2 * time.Second):
+		cancel()
+		workerServer.Close()
+		db.Close()
+		t.Fatal("server did not start listening")
+	}
 
 	cleanup := func() {
 		cancel()

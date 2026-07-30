@@ -30,6 +30,7 @@ type Server struct {
 	logs         *logs.Store
 	secrets      *workers.Secrets
 	pending      chan string
+	ready        chan struct{}
 	dispatchWg   sync.WaitGroup
 	activeTasks  atomic.Int64
 	draining     atomic.Bool
@@ -86,6 +87,7 @@ func New(cfg Config) *Server {
 		limiter:      cfg.Limiter,
 		logs:         cfg.Logs,
 		pending:      make(chan string, queueSize),
+		ready:        make(chan struct{}),
 		addr:         cfg.Addr,
 		apiKey:       cfg.APIKey,
 		drainTimeout: drain,
@@ -188,6 +190,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
+	close(s.ready)
 	s.logger.Info("serving", "addr", ln.Addr().String())
 
 	errCh := make(chan error, 1)
