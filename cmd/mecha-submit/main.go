@@ -17,7 +17,7 @@ import (
 
 const (
 	productionAPIURL = "http://127.0.0.1:21212"
-	productionLock   = "/run/lock/mecha-submit.lock"
+	productionLock   = "/var/lib/mecha-submit/submit.lock"
 	maxInputBytes    = int64(40 * 1024)
 )
 
@@ -73,8 +73,8 @@ func main() {
 	b := newBridge(productionAPIURL, apiKey)
 	lock := fileLocker{
 		path:         productionLock,
-		wait:         35 * time.Minute,
-		pollInterval: time.Second,
+		wait:         time.Nanosecond,
+		pollInterval: time.Nanosecond,
 	}
 	code := run(ctx, os.Stdin, os.Stdout, b, lock)
 	stop()
