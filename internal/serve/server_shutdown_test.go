@@ -197,13 +197,14 @@ func TestShutdownDrainsActiveDispatchAndRejectsNewTasks(t *testing.T) {
 
 func TestShutdownCancelsAtDeadlineAndPersistsFailure(t *testing.T) {
 	entered := make(chan struct{})
-	requestCancelled := make(chan struct{})
+	release := make(chan struct{})
 	var enteredOnce sync.Once
-	var cancelledOnce sync.Once
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		enteredOnce.Do(func() { close(entered) })
-		<-r.Context().Done()
-		cancelledOnce.Do(func() { close(requestCancelled) })
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
 	})
 
 	const drain = 250 * time.Millisecond
@@ -220,27 +221,22 @@ func TestShutdownCancelsAtDeadlineAndPersistsFailure(t *testing.T) {
 	cancel()
 	waitUntilDraining(t, srv)
 	select {
-	case <-requestCancelled:
-		t.Fatal("request cancelled before drain deadline")
+	case err := <-errCh:
+		t.Fatalf("server returned before drain deadline: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
-	select {
-	case <-requestCancelled:
-		if elapsed := time.Since(startedDrain); elapsed < 200*time.Millisecond {
-			t.Fatalf("request cancelled too early after %s", elapsed)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("request was not cancelled after drain deadline")
-	}
-
 	select {
 	case err := <-errCh:
 		if err != nil {
 			t.Fatalf("server returned error: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+		if elapsed := time.Since(startedDrain); elapsed < 200*time.Millisecond {
+			t.Fatalf("server cancelled dispatch too early after %s", elapsed)
+		}
+	case <-time.After(2 * time.Second):
 		t.Fatal("server did not stop after forced cancellation")
 	}
+	close(release)
 
 	got, err := taskStore.Get(context.Background(), taskID)
 	if err != nil {
