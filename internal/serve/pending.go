@@ -9,11 +9,19 @@ import (
 
 const (
 	pendingScanInterval = 60 * time.Second
-	// staleDispatchTimeout is how long a task may remain in "dispatched" state
-	// before the pending scan re-enqueues it. Must exceed the longest realistic
-	// task timeout (default 10m) to avoid racing with an active dispatch goroutine.
-	staleDispatchTimeout = 15 * time.Minute
+	defaultTaskTimeout  = 10 * time.Minute
+	staleDispatchGrace  = 5 * time.Minute
 )
+
+// staleDispatchAfter keeps recovery behind the configured worker timeout.
+// A fixed threshold can duplicate long-running disposable tasks.
+func (s *Server) staleDispatchAfter(t *tasks.Task) time.Duration {
+	timeout := defaultTaskTimeout
+	if entry, ok := s.reg.Get(t.WorkerName); ok && entry.Worker != nil && entry.Worker.Timeout > 0 {
+		timeout = entry.Worker.Timeout
+	}
+	return timeout + staleDispatchGrace
+}
 
 // pendingLoop scans for orphaned pending tasks (created but never dispatched
 // — e.g., if the channel was full when they were enqueued). Catches tasks
@@ -55,16 +63,15 @@ func (s *Server) scanPending(ctx context.Context) {
 		if t.NextRetryAt != nil && t.NextRetryAt.After(time.Now()) {
 			continue
 		}
-		// Skip dispatched tasks that are still within the staleness window.
-		// Re-enqueue stale dispatched tasks: a dispatch goroutine that panicked
-		// after SetBusy leaves the task stuck in "dispatched" forever because
-		// Complete/Fail never run. After staleDispatchTimeout (15m > any task
-		// timeout), we can safely assume the original goroutine is gone.
+		// Re-enqueue dispatched tasks only after their own worker timeout plus
+		// a recovery grace period. This avoids duplicating an active long task.
 		if t.State == tasks.StateDispatched {
-			if time.Since(t.UpdatedAt) < staleDispatchTimeout {
+			age := time.Since(t.UpdatedAt)
+			staleAfter := s.staleDispatchAfter(t)
+			if age < staleAfter {
 				continue
 			}
-			s.logger.Warn("pending: stale dispatched task, re-enqueuing", "id", id, "age", time.Since(t.UpdatedAt).Truncate(time.Second))
+			s.logger.Warn("pending: stale dispatched task, re-enqueuing", "id", id, "age", age.Truncate(time.Second), "stale_after", staleAfter)
 		}
 		// Dedup check: don't re-dispatch if already completed
 		if t.DedupKey != "" {
