@@ -10,8 +10,9 @@ import (
 )
 
 type taskRequest struct {
-	Prompt string `json:"prompt"`
-	Worker string `json:"worker"`
+	Prompt     string `json:"prompt"`
+	Worker     string `json:"worker"`
+	MaxRetries *int   `json:"max_retries,omitempty"`
 }
 
 var workerRoundRobin atomic.Uint64
@@ -34,6 +35,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePostTask(w http.ResponseWriter, r *http.Request) {
+	if s.draining.Load() {
+		writeError(w, http.StatusServiceUnavailable, "server draining")
+		return
+	}
+
 	var req taskRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -41,6 +47,10 @@ func (s *Server) handlePostTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Prompt == "" {
 		writeError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+	if req.MaxRetries != nil && (*req.MaxRetries < 1 || *req.MaxRetries > 10) {
+		writeError(w, http.StatusBadRequest, "max_retries must be between 1 and 10")
 		return
 	}
 	if req.Worker == "" {
@@ -59,12 +69,28 @@ func (s *Server) handlePostTask(w http.ResponseWriter, r *http.Request) {
 		req.Worker = online[int(idx-1)%len(online)]
 	}
 
-	t, err := s.tasks.Create(r.Context(), req.Worker, req.Prompt)
+	var t *tasks.Task
+	var err error
+	if req.MaxRetries == nil {
+		t, err = s.tasks.Create(r.Context(), req.Worker, req.Prompt)
+	} else {
+		t, err = s.tasks.CreateWithMaxRetries(r.Context(), req.Worker, req.Prompt, *req.MaxRetries)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create task")
 		return
 	}
 	tasksCreated.Add(1)
+
+	// Close the race where shutdown begins while the request is being parsed or
+	// persisted. The task is made terminal instead of being stranded in memory.
+	if s.draining.Load() {
+		if err := s.tasks.Fail(r.Context(), t.ID, "server draining"); err != nil {
+			s.logger.Error("fail task during drain", "id", t.ID, "err", err)
+		}
+		writeError(w, http.StatusServiceUnavailable, "server draining")
+		return
+	}
 
 	select {
 	case s.pending <- t.ID:

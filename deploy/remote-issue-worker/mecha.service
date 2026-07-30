@@ -1,0 +1,49 @@
+[Unit]
+Description=Xiaoping Mecha remote Codex dispatcher
+After=network-online.target docker.service mecha-docker-egress-guard.service
+Wants=network-online.target
+Requires=docker.service mecha-docker-egress-guard.service
+
+[Service]
+Type=simple
+User=mecha
+Group=mecha
+SupplementaryGroups=docker
+Environment=HOME=/var/lib/mecha
+Environment=MECHA_DB_PATH=/var/lib/mecha/.mecha/mecha.db
+Environment=MECHA_DRAIN_TIMEOUT=35m
+Environment=TZ=Asia/Shanghai
+ExecStart=/opt/xiaoping-mecha/current/mecha serve --addr 127.0.0.1:21212
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=37min
+UMask=0077
+Nice=15
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mecha
+InaccessiblePaths=/srv/guangxi-opportunity-report /home/ubuntu
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=
+AmbientCapabilities=
+MemoryMax=384M
+TasksMax=128
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

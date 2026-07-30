@@ -38,7 +38,8 @@ type DockerConfig struct {
 	Image       string            `yaml:"image"`
 	Host        string            `yaml:"host,omitempty"`
 	Cwd         string            `yaml:"cwd,omitempty"`
-	Credentials []string          `yaml:"credentials,omitempty"`
+	Credentials   []string `yaml:"credentials,omitempty"`
+	CredentialsRW []string `yaml:"credentials_rw,omitempty"`
 	Resources   ResourceConfig    `yaml:"resources,omitempty"`
 	Lifecycle   string            `yaml:"lifecycle,omitempty"`
 	Env         map[string]string `yaml:"env,omitempty"`
@@ -196,4 +197,3 @@ func (w *Worker) validate() error {
 	}
 	return nil
 }
-

@@ -82,6 +82,22 @@ func (d *DockerConfig) Validate() error {
 			return fmt.Errorf("docker.credentials and docker.token are mutually exclusive — use credentials for subscription auth, token for API keys")
 		}
 	}
+	if len(d.CredentialsRW) > 0 {
+		if d.Lifecycle != "disposable" {
+			return fmt.Errorf("docker.credentials_rw requires docker.lifecycle disposable")
+		}
+		if len(d.CredentialsRW) != 1 || d.CredentialsRW[0] != "codex" {
+			return fmt.Errorf("docker.credentials_rw only supports a single codex credential")
+		}
+		if d.Token != "" {
+			return fmt.Errorf("docker.credentials_rw and docker.token are mutually exclusive")
+		}
+		for _, cred := range d.Credentials {
+			if cred == "codex" {
+				return fmt.Errorf("codex cannot appear in both docker.credentials and docker.credentials_rw")
+			}
+		}
+	}
 	if d.Cwd != "" {
 		resolved, err := ResolveCwd(d.Cwd)
 		if err != nil {

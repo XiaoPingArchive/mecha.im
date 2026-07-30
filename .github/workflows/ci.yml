@@ -5,15 +5,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.26.2"
+          go-version: "1.26.5"
       - run: go vet ./...
       - run: go install honnef.co/go/tools/cmd/staticcheck@2026.1
       - run: staticcheck ./...
@@ -23,8 +24,9 @@ jobs:
         run: go test -race $(go list ./... | grep -v 'test/integration')
       - run: go build -o /dev/null ./cmd/mecha
       - run: go build -o /dev/null ./cmd/mecha-mcp
+      - run: go build -o /dev/null ./cmd/mecha-submit
       - run: make cover-check
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
       - name: Runtime unit tests (TypeScript)
@@ -35,11 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: check
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.26.2"
+          go-version: "1.26.5"
       - name: Build worker images
-        run: make image
+        run: make image image-codex
       - name: Docker integration tests
         run: go test -v -race -run "TestDocker|TestRuntime" -timeout 15m ./test/integration/...

@@ -1,0 +1,24 @@
+#!/bin/bash
+set -euo pipefail
+
+# Containers must not reach cloud-instance metadata or other link-local
+# services. Docker evaluates DOCKER-USER before its own forwarding rules.
+if ! /usr/sbin/iptables -w -nL DOCKER-USER >/dev/null 2>&1; then
+  echo "Docker DOCKER-USER chain is unavailable" >&2
+  exit 1
+fi
+
+if ! /usr/sbin/iptables -w -C DOCKER-USER \
+  -d 169.254.0.0/16 -j REJECT >/dev/null 2>&1; then
+  /usr/sbin/iptables -w -I DOCKER-USER 1 \
+    -d 169.254.0.0/16 -j REJECT
+fi
+
+# Docker IPv6 may be disabled, in which case no DOCKER-USER chain exists.
+if /usr/sbin/ip6tables -w -nL DOCKER-USER >/dev/null 2>&1; then
+  if ! /usr/sbin/ip6tables -w -C DOCKER-USER \
+    -d fe80::/10 -j REJECT >/dev/null 2>&1; then
+    /usr/sbin/ip6tables -w -I DOCKER-USER 1 \
+      -d fe80::/10 -j REJECT
+  fi
+fi

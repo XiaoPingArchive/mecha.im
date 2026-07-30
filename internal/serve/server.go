@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"mecha.im/internal/logs"
@@ -29,7 +30,10 @@ type Server struct {
 	logs         *logs.Store
 	secrets      *workers.Secrets
 	pending      chan string
+	ready        chan struct{}
 	dispatchWg   sync.WaitGroup
+	activeTasks  atomic.Int64
+	draining     atomic.Bool
 	addr         string
 	apiKey       string
 	drainTimeout time.Duration
@@ -83,6 +87,7 @@ func New(cfg Config) *Server {
 		limiter:      cfg.Limiter,
 		logs:         cfg.Logs,
 		pending:      make(chan string, queueSize),
+		ready:        make(chan struct{}),
 		addr:         cfg.Addr,
 		apiKey:       cfg.APIKey,
 		drainTimeout: drain,
@@ -119,6 +124,13 @@ func New(cfg Config) *Server {
 
 // Start begins serving HTTP and the dispatch loop. Blocks until ctx is cancelled.
 func (s *Server) Start(ctx context.Context) error {
+	// Admission/background work follows the caller's lifetime, while tasks
+	// already accepted get an independent context so shutdown can drain them.
+	runCtx, stopRun := context.WithCancel(ctx)
+	defer stopRun()
+	taskCtx, cancelTasks := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelTasks()
+
 	// Cache secrets once at startup for container builds (M-20: avoid re-reading
 	// ~/.mecha/secrets.yml on every disposable container creation).
 	if secPath, err := workers.DefaultSecretsPath(); err == nil {
@@ -131,7 +143,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Cleanup orphaned disposable containers from previous crashes
 	if s.docker != nil {
-		removed, cleanupErr := s.docker.CleanupOrphanDisposables(ctx)
+		removed, cleanupErr := s.docker.CleanupOrphanDisposables(runCtx)
 		if cleanupErr != nil {
 			s.logger.Warn("orphan cleanup failed", "err", cleanupErr)
 		} else if removed > 0 {
@@ -140,40 +152,45 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// Start dispatch loop first so recovered tasks are consumed
-	go s.dispatchLoop(ctx)
+	dispatchLoopDone := make(chan struct{})
+	go func() {
+		defer close(dispatchLoopDone)
+		s.dispatchLoopWithTaskContext(runCtx, taskCtx)
+	}()
 
 	// Start retry loop — re-enqueues failed tasks after backoff
-	go s.retryLoop(ctx)
+	go s.retryLoop(runCtx)
 
 	// Start rate limiter cleanup — prevents unbounded bucket growth
 	if s.limiter != nil {
-		go s.limiterCleanupLoop(ctx)
+		go s.limiterCleanupLoop(runCtx)
 	}
 
 	// Start pending scan — catches orphaned tasks not in the channel
-	go s.pendingLoop(ctx)
+	go s.pendingLoop(runCtx)
 
 	// Start write-back retry loop — retries events whose write-back failed
 	// transiently (GitHub rate limit, network error). Without this loop,
 	// failed write-backs leave events permanently in "dispatched" state.
 	if s.events != nil {
-		go s.writeBackRetryLoop(ctx)
+		go s.writeBackRetryLoop(runCtx)
 	}
 
 	// Start reconciliation loop — detects registry/Docker state drift
 	if s.docker != nil {
-		go s.reconcileLoop(ctx, s.docker, 60*time.Second)
+		go s.reconcileLoop(runCtx, s.docker, 60*time.Second)
 	}
 
-	if err := s.recoverTasks(ctx); err != nil {
+	if err := s.recoverTasks(runCtx); err != nil {
 		return fmt.Errorf("recover pending tasks: %w", err)
 	}
-	s.recoverEvents(ctx)
+	s.recoverEvents(taskCtx)
 
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
+	close(s.ready)
 	s.logger.Info("serving", "addr", ln.Addr().String())
 
 	errCh := make(chan error, 1)
@@ -181,25 +198,67 @@ func (s *Server) Start(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		s.draining.Store(true)
+		stopRun()
+		<-dispatchLoopDone // no dispatchWg.Add calls can race with Wait below
 		s.logger.Info("shutting down", "drain_timeout", s.drainTimeout)
-		shutCtx, cancel := context.WithTimeout(context.Background(), s.drainTimeout)
-		defer cancel()
-		s.httpSrv.Shutdown(shutCtx)
-		// Wait for in-flight dispatches to finish (bounded by shutCtx)
+		hadActiveTasks := s.activeTasks.Load() > 0
+
+		drainTimer := time.NewTimer(s.drainTimeout)
+		defer drainTimer.Stop()
+		done := make(chan struct{})
+		go func() { s.dispatchWg.Wait(); close(done) }()
+		drained := false
+		select {
+		case <-done:
+			drained = true
+			s.logger.Info("all dispatches drained")
+		case <-drainTimer.C:
+			s.logger.Warn("shutdown drain timeout — cancelling active dispatches")
+			cancelTasks()
+			forceTimer := time.NewTimer(30 * time.Second)
+			select {
+			case <-done:
+				s.logger.Info("cancelled dispatches cleaned up")
+			case <-forceTimer.C:
+				s.logger.Warn("dispatch cleanup timeout")
+			}
+			if !forceTimer.Stop() {
+				select {
+				case <-forceTimer.C:
+				default:
+				}
+			}
+		}
+
+		// Keep GET /task available briefly so a polling bridge can collect the
+		// durable result of a task that completed during the drain.
+		if drained && hadActiveTasks {
+			resultGrace := time.NewTimer(3 * time.Second)
+			<-resultGrace.C
+		}
+
+		shutCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelShutdown()
+		if err := s.httpSrv.Shutdown(shutCtx); err != nil {
+			s.logger.Warn("http shutdown", "err", err)
+		}
+		return nil
+	case err := <-errCh:
+		s.draining.Store(true)
+		stopRun()
+		<-dispatchLoopDone
+		cancelTasks()
 		done := make(chan struct{})
 		go func() { s.dispatchWg.Wait(); close(done) }()
 		select {
 		case <-done:
-			s.logger.Info("all dispatches drained")
-		case <-shutCtx.Done():
-			s.logger.Warn("shutdown timeout — some dispatches may still be running")
+		case <-time.After(30 * time.Second):
+			s.logger.Warn("dispatch cleanup timeout after server error")
 		}
-		return nil
-	case err := <-errCh:
 		if err == http.ErrServerClosed {
 			return nil
 		}
 		return err
 	}
 }
-

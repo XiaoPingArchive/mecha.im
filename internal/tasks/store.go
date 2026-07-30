@@ -22,9 +22,20 @@ func (s *Store) Create(ctx context.Context, workerName, prompt string) (*Task, e
 	return s.CreateWithEvent(ctx, workerName, prompt, "{}", "")
 }
 
-// CreateWithEvent inserts a task with event context and optional event ID.
-// The dedup_key (event_id + worker_name) prevents duplicate dispatch on crash recovery.
+// CreateWithMaxRetries creates a direct task with an explicit retry ceiling.
+func (s *Store) CreateWithMaxRetries(ctx context.Context, workerName, prompt string, maxRetries int) (*Task, error) {
+	if maxRetries < 1 {
+		return nil, fmt.Errorf("max retries must be at least 1")
+	}
+	return s.create(ctx, workerName, prompt, "{}", "", maxRetries)
+}
+
+// CreateWithEvent inserts a new task with the default retry policy.
 func (s *Store) CreateWithEvent(ctx context.Context, workerName, prompt, taskCtx, eventID string) (*Task, error) {
+	return s.create(ctx, workerName, prompt, taskCtx, eventID, DefaultMaxRetries)
+}
+
+func (s *Store) create(ctx context.Context, workerName, prompt, taskCtx, eventID string, maxRetries int) (*Task, error) {
 	id, err := genID()
 	if err != nil {
 		return nil, fmt.Errorf("generate task id: %w", err)
@@ -35,9 +46,9 @@ func (s *Store) CreateWithEvent(ctx context.Context, workerName, prompt, taskCtx
 		dedupKey = eventID + ":" + workerName
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO tasks (id, worker_name, prompt, context, event_id, dedup_key, state, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, workerName, prompt, taskCtx, eventID, dedupKey, string(StatePending), now.Unix(), now.Unix(),
+		`INSERT INTO tasks (id, worker_name, prompt, context, event_id, dedup_key, state, max_retries, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, workerName, prompt, taskCtx, eventID, dedupKey, string(StatePending), maxRetries, now.Unix(), now.Unix(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert task: %w", err)
@@ -50,6 +61,7 @@ func (s *Store) CreateWithEvent(ctx context.Context, workerName, prompt, taskCtx
 		EventID:    eventID,
 		DedupKey:   dedupKey,
 		State:      StatePending,
+		MaxRetries: maxRetries,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}, nil
@@ -167,4 +179,3 @@ func (s *Store) Pending(ctx context.Context) ([]string, error) {
 	}
 	return ids, rows.Err()
 }
-

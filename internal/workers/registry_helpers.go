@@ -50,6 +50,7 @@ func deepCopyEntry(e *Entry) Entry {
 			dc.Env = copyMapStr(dc.Env)
 			dc.Labels = copyMapStr(dc.Labels)
 			dc.Credentials = copySliceStr(dc.Credentials)
+			dc.CredentialsRW = copySliceStr(dc.CredentialsRW)
 			dc.Plugins = copySliceStr(dc.Plugins)
 			dc.PluginMarketplaces = copySliceStr(dc.PluginMarketplaces)
 			wc.Docker = &dc

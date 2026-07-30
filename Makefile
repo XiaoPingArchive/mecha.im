@@ -4,6 +4,9 @@ LDFLAGS := -s -w -X mecha.im/internal/cli.Version=$(VERSION)
 build:
 	go build -ldflags "$(LDFLAGS)" -o mecha ./cmd/mecha
 
+submit:
+	go build -ldflags "$(LDFLAGS)" -o mecha-submit ./cmd/mecha-submit
+
 test:
 	go test -race ./...
 
@@ -13,7 +16,7 @@ vet:
 bun-test:
 	cd docker/runtime && bun test
 
-ci: vet test bun-test build
+ci: vet test bun-test build submit
 
 # Coverage profile generation — -coverpkg=./... instruments ALL packages,
 # including those without test files, so zero-coverage packages are visible.
@@ -39,7 +42,7 @@ mcp:
 	go build -ldflags "-s -w -X main.Version=$(VERSION)" -o mecha-mcp ./cmd/mecha-mcp
 
 clean:
-	rm -f mecha mecha-mcp coverage.out coverage.html
+	rm -f mecha mecha-submit mecha-mcp coverage.out coverage.html
 
 image-base:
 	docker build -t mecha-worker-base -f docker/base/Dockerfile docker/
@@ -47,4 +50,7 @@ image-base:
 image: image-base
 	docker build -t mecha-worker docker/claude/
 
-.PHONY: build mcp test vet bun-test ci clean image-base image cover cover-html cover-check
+image-codex: image-base
+	docker build -t mecha-worker-codex docker/codex/
+
+.PHONY: build submit mcp test vet bun-test ci clean image-base image image-codex cover cover-html cover-check

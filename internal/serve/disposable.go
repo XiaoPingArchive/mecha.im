@@ -142,6 +142,12 @@ func (s *Server) dispatchDisposable(ctx context.Context, taskID string, t *tasks
 	defer cleanup()
 
 	if err != nil {
+		if s.persistTaskCancellation(
+			ctx, taskID, t.EventID, entry.Worker.Name, t.Attempts+1,
+		) {
+			s.logger.Warn("disposable: cancelled during container startup", "id", taskID)
+			return
+		}
 		redacted := workers.RedactSecrets(err.Error())
 		if failErr := s.tasks.Fail(ctx, taskID, redacted); failErr != nil {
 			s.logger.Error("disposable: fail task", "id", taskID, "err", failErr)
@@ -157,6 +163,12 @@ func (s *Server) dispatchDisposable(ctx context.Context, taskID string, t *tasks
 	}
 	result, err := s.sendTask(ctx, ep, taskID, t.Prompt, t.Context, entry.Worker.Timeout, apiKey)
 	if err != nil {
+		if s.persistTaskCancellation(
+			ctx, taskID, t.EventID, entry.Worker.Name, t.Attempts+1,
+		) {
+			s.logger.Warn("disposable: cancelled during task", "id", taskID)
+			return
+		}
 		redacted := workers.RedactSecrets(err.Error())
 		// Mirror persistent worker retry logic: transport errors are retried,
 		// non-transport errors (4xx, invalid response) fail immediately.

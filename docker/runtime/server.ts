@@ -4,19 +4,29 @@ const PORT = parseInt(process.env.WORKER_PORT || "8081") || 8081;
 const MAX_BODY_BYTES = 10 * 1024 * 1024; // 10MB
 const DRY_RUN = process.env.WORKER_DRY_RUN === "true";
 const API_KEY = process.env.WORKER_API_KEY || "";
+const BACKEND = process.env.WORKER_BACKEND || "claude";
+const ALLOWED_BACKENDS = new Set(["claude", "codex"]);
 
 let busy = false;
 let executor: BackendExecutor;
 
+if (!ALLOWED_BACKENDS.has(BACKEND)) {
+  console.error(`fatal: unsupported worker backend: ${BACKEND}`);
+  process.exit(1);
+}
+
 try {
-  const mod = await import("./backends/claude.ts");
+  const mod =
+    BACKEND === "codex"
+      ? await import("./backends/codex.ts")
+      : await import("./backends/claude.ts");
   if (!mod.executeTask) {
-    console.error("fatal: claude backend does not export executeTask");
+    console.error(`fatal: ${BACKEND} backend does not export executeTask`);
     process.exit(1);
   }
   executor = mod.executeTask;
 } catch (err) {
-  console.error(`fatal: failed to load claude backend: ${err}`);
+  console.error(`fatal: failed to load ${BACKEND} backend: ${err}`);
   process.exit(1);
 }
 
@@ -77,7 +87,7 @@ async function taskHandler(req: Request): Promise<Response> {
     }
 
     if (DRY_RUN) {
-      return Response.json({ dry_run: true, backend: "claude", prompt: body.prompt });
+      return Response.json({ dry_run: true, backend: BACKEND, prompt: body.prompt });
     }
 
     const result = await executor(body.prompt);
@@ -108,4 +118,6 @@ const server = Bun.serve({
   },
 });
 
-console.log(`mecha worker listening on :${server.port}${API_KEY ? " [api-key enabled]" : ""}`);
+console.log(
+  `mecha worker listening on :${server.port} [backend=${BACKEND}]${API_KEY ? " [api-key enabled]" : ""}`,
+);
