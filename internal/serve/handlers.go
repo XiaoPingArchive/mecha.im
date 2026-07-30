@@ -10,8 +10,9 @@ import (
 )
 
 type taskRequest struct {
-	Prompt string `json:"prompt"`
-	Worker string `json:"worker"`
+	Prompt     string `json:"prompt"`
+	Worker     string `json:"worker"`
+	MaxRetries *int   `json:"max_retries,omitempty"`
 }
 
 var workerRoundRobin atomic.Uint64
@@ -43,6 +44,10 @@ func (s *Server) handlePostTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "prompt is required")
 		return
 	}
+	if req.MaxRetries != nil && (*req.MaxRetries < 1 || *req.MaxRetries > 10) {
+		writeError(w, http.StatusBadRequest, "max_retries must be between 1 and 10")
+		return
+	}
 	if req.Worker == "" {
 		entries := s.reg.List()
 		var online []string
@@ -59,7 +64,13 @@ func (s *Server) handlePostTask(w http.ResponseWriter, r *http.Request) {
 		req.Worker = online[int(idx-1)%len(online)]
 	}
 
-	t, err := s.tasks.Create(r.Context(), req.Worker, req.Prompt)
+	var t *tasks.Task
+	var err error
+	if req.MaxRetries == nil {
+		t, err = s.tasks.Create(r.Context(), req.Worker, req.Prompt)
+	} else {
+		t, err = s.tasks.CreateWithMaxRetries(r.Context(), req.Worker, req.Prompt, *req.MaxRetries)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create task")
 		return
