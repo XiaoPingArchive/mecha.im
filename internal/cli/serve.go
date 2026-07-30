@@ -57,6 +57,22 @@ func serveCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load registry: %w", err)
 			}
+
+			// Enable orphan cleanup and reconciliation whenever managed workers exist.
+			// Disposable dispatches use short-lived clients, but crash recovery needs
+			// one daemon-scoped client owned by the server.
+			var dockerClient *workers.DockerClient
+			for _, entry := range reg.List() {
+				if entry.Worker.IsManaged() {
+					dockerClient, err = workers.NewDockerClient(entry.Worker.Docker.Host)
+					if err != nil {
+						return fmt.Errorf("create docker client: %w", err)
+					}
+					defer dockerClient.Close()
+					break
+				}
+			}
+
 			taskStore := tasks.NewStore(db)
 			evStore := events.NewStore(db)
 			auditLog := logs.NewStore(db, nil)
@@ -137,6 +153,7 @@ func serveCmd() *cobra.Command {
 				Events:       evStore,
 				Sources:      sources,
 				WriteBack:    wb,
+				Docker:       dockerClient,
 				Limiter:      limiter,
 				Logs:         auditLog,
 				Addr:         addr,
