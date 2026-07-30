@@ -76,15 +76,22 @@ func TestRunCompletedAfterTransientPollFailure(t *testing.T) {
 			if got := r.Header.Get("Authorization"); got != "Bearer test-api-key" {
 				t.Errorf("authorization = %q", got)
 			}
-			var body map[string]string
+			var body struct {
+				Prompt     string `json:"prompt"`
+				Worker     string `json:"worker"`
+				MaxRetries int    `json:"max_retries"`
+			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Errorf("decode POST: %v", err)
 			}
-			if body["worker"] != "xiaoping-codex" {
-				t.Errorf("worker = %q", body["worker"])
+			if body.Worker != "xiaoping-codex" {
+				t.Errorf("worker = %q", body.Worker)
 			}
-			if body["prompt"] != "do the work" {
-				t.Errorf("prompt = %q", body["prompt"])
+			if body.Prompt != "do the work" {
+				t.Errorf("prompt = %q", body.Prompt)
+			}
+			if body.MaxRetries != 1 {
+				t.Errorf("max_retries = %d, want 1", body.MaxRetries)
 			}
 			w.WriteHeader(http.StatusAccepted)
 			_ = json.NewEncoder(w).Encode(map[string]any{
