@@ -15,7 +15,7 @@ Environment=TZ=Asia/Shanghai
 ExecStart=/opt/xiaoping-mecha/current/mecha serve
 Restart=on-failure
 RestartSec=5s
-TimeoutStopSec=10min
+TimeoutStopSec=37min
 UMask=0077
 Nice=15
 IOSchedulingClass=idle
