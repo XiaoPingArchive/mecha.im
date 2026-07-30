@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+
+fail_json() {
+  printf '{"request_id":"","task_id":"","state":"failed","output":"","error":"%s"}\n' "$1"
+  exit "${2:-1}"
+}
+
+if [[ -n "${SSH_ORIGINAL_COMMAND:-}" ]]; then
+  fail_json "SSH commands are not allowed"
+fi
+
+now="$(TZ=Asia/Shanghai date +%H%M)"
+now_number=$((10#$now))
+if (( now_number >= 730 && now_number < 905 )); then
+  fail_json "远程任务在每日晨报保护窗口 07:30-09:05 暂停接收，请稍后重试" 75
+fi
+
+if systemctl --quiet is-active guangxi-opportunity-report.service; then
+  fail_json "广西机会晨报正在运行，请稍后重试" 75
+fi
+
+if [[ ! -r /etc/mecha/submit-api-key ]]; then
+  fail_json "Mecha API authentication is unavailable"
+fi
+
+export MECHA_API_KEY
+MECHA_API_KEY="$(< /etc/mecha/submit-api-key)"
+exec /opt/xiaoping-mecha/current/mecha-submit
