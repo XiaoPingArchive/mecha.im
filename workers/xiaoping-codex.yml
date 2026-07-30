@@ -10,5 +10,5 @@ docker:
   env:
     CODEX_SANDBOX: read-only
     CODEX_WEB_SEARCH: live
-    CODEX_TIMEOUT_MS: "1680000"
-timeout: 28m
+    CODEX_TIMEOUT_MS: "1500000"
+timeout: 27m
