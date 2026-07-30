@@ -14,7 +14,7 @@ ENV WORKER_BACKEND="codex"
 
 RUN mkdir -p "$HOME/.codex-cli" && cd "$HOME/.codex-cli" \
     && bun init -y > /dev/null 2>&1 \
-    && bun add @openai/codex \
+    && bun add --exact @openai/codex@0.145.0 \
     && ln -sf "$HOME/.codex-cli/node_modules/.bin/codex" "$HOME/.local/bin/codex" \
     && codex --version
 
