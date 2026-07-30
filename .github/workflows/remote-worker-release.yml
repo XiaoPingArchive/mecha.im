@@ -37,6 +37,9 @@ jobs:
           cp dist/mecha dist/mecha-submit bundle/bin/
           cp deploy/remote-issue-worker/mecha.service bundle/deploy/
           cp deploy/remote-issue-worker/mecha-submit-gateway bundle/deploy/
+          cp deploy/remote-issue-worker/mecha-docker-egress-guard bundle/deploy/
+          cp deploy/remote-issue-worker/mecha-docker-egress-guard.service bundle/deploy/
+          cp deploy/remote-issue-worker/sshd-mecha-submit.conf bundle/deploy/
           cp workers/xiaoping-codex.yml bundle/workers/
           tar -C bundle -czf dist/mecha-remote-worker-linux-amd64.tar.gz .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -1,8 +1,8 @@
 [Unit]
 Description=Xiaoping Mecha remote Codex dispatcher
-After=network-online.target docker.service
+After=network-online.target docker.service mecha-docker-egress-guard.service
 Wants=network-online.target
-Requires=docker.service
+Requires=docker.service mecha-docker-egress-guard.service
 
 [Service]
 Type=simple
@@ -37,6 +37,8 @@ RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
 CapabilityBoundingSet=
 AmbientCapabilities=
 MemoryMax=384M

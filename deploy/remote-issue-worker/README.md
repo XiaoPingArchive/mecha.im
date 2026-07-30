@@ -14,13 +14,17 @@ Security invariants:
   Create `/var/lib/mecha-submit` for that account before enabling the key.
 - Each task gets a disposable container with no host project mount, dropped
   capabilities, two CPUs, 2200 MiB RAM, and 256 PIDs.
+- `mecha-docker-egress-guard` rejects container traffic to IPv4 and IPv6
+  link-local networks so cloud-instance metadata is not reachable.
 - Codex executes with `read-only` sandboxing. `danger-full-access` is rejected.
 - `credentials_rw: [codex]` is restricted to disposable workers. It exists
   because subscription authentication refreshes `auth.json` in place. Use a
   dedicated service account and never reuse another host user's credential dir.
 
 The versioned release contains `mecha`, `mecha-submit`, checksums, and the exact
-GHCR image digest. Production should pin the worker image by that digest.
+GHCR image digest. Its deployment archive also contains the systemd units,
+gateway, SSH Match template, egress guard, and worker template. Production
+should pin the worker image by that digest.
 
 The companion workflow belongs in the private repository receiving Issues. It
 needs a dedicated Ed25519 private key, a pinned `known_hosts` line, and the VPS
@@ -32,3 +36,7 @@ restrict,command="/usr/local/libexec/mecha-submit-gateway" ssh-ed25519 AAAA...
 
 Do not add a public reverse proxy, MCP endpoint, workspace mount, PAT, or Docker
 access to the SSH gateway account.
+
+Install `sshd-mecha-submit.conf` as
+`/etc/ssh/sshd_config.d/00-mecha-submit.conf` before adding the authorized key,
+then validate both `sshd -t` and the effective per-user configuration.
